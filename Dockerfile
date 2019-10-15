@@ -132,7 +132,7 @@ RUN FFMPEG_VER="n4.0.2" && cd ~/ffmpeg_sources && \
 # nginx-rtmp with openresty
 RUN ZLIB="zlib-1.2.11" && vNGRTMP="v1.1.11" && PCRE="8.41" && nginx_build=/root/nginx && mkdir $nginx_build && \
     cd $nginx_build && \
-    wget ftp://ftp.csx.cam.ac.uk/pub/software/programming/pcre/pcre-$PCRE.tar.gz && \
+    wget https://sourceforge.mirrorservice.org/p/pc/pcre/pcre/8.41/pcre-$PCRE.tar.gz && \
     tar -zxf pcre-$PCRE.tar.gz && \
     cd pcre-$PCRE && \
     ./configure && make && make install && \
@@ -267,8 +267,8 @@ RUN cd / && git clone https://github.com/sctplab/usrsctp.git && cd /usrsctp && \
 
 
 
-# tag v0.6.2 https://github.com/meetecho/janus-gateway/commit/ddbf37fef43ade61d73173c7661a2449c13582d4
-RUN cd / && git clone https://github.com/meetecho/janus-gateway.git && cd /janus-gateway && \
+# tag my own janus
+RUN cd / && git clone https://github.com/gxtheone/janus-gateway.git && cd /janus-gateway && \
     sh autogen.sh &&  \
     git checkout origin/master && git reset --hard ddbf37fef43ade61d73173c7661a2449c13582d4 && \ 
     PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" ./configure \

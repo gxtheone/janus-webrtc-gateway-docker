@@ -1,4 +1,4 @@
-TEMPLATE_NAME ?= janus-webrtc-gateway-docker
+TEMPLATE_NAME ?= janus-webrtc-gateway-docker-gx
 
 build:
 	@docker build -t atyenoria/$(TEMPLATE_NAME) .
