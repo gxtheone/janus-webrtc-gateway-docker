@@ -41,7 +41,7 @@ RUN YASM="1.3.0" && cd ~/ffmpeg_sources && \
     wget http://www.tortall.net/projects/yasm/releases/yasm-$YASM.tar.gz && \
     tar xzvf yasm-$YASM.tar.gz && \
     cd yasm-$YASM && \
-    ./configure --prefix="$HOME/ffmpeg_build" --bindir="$HOME/bin"  && \
+    ./configure --enable-shared --bindir="$HOME/bin"  && \
     make && \
     make install && \
     make distclean
@@ -50,7 +50,7 @@ RUN VPX="1.5.0" && cd ~/ffmpeg_sources && \
     wget http://storage.googleapis.com/downloads.webmproject.org/releases/webm/libvpx-1.5.0.tar.bz2 && \
     tar xjvf libvpx-$VPX.tar.bz2 && \
     cd libvpx-$VPX && \
-    PATH="$HOME/bin:$PATH" ./configure --prefix="$HOME/ffmpeg_build" --disable-examples --disable-unit-tests && \
+    PATH="$HOME/bin:$PATH" ./configure --enable-shared --disable-examples --disable-unit-tests && \
     PATH="$HOME/bin:$PATH" make && \
     make install && \
     make clean
@@ -61,7 +61,7 @@ RUN OPUS="1.3" && cd ~/ffmpeg_sources && \
     tar xzvf opus-$OPUS.tar.gz && \
     cd opus-$OPUS && \
     ./configure --help && \
-    ./configure --prefix="$HOME/ffmpeg_build"  && \
+    ./configure --enable-shared && \
     make && \
     make install && \
     make clean
@@ -71,7 +71,7 @@ RUN LAME="3.100" && apt-get install -y nasm  && cd ~/ffmpeg_sources && \
     wget http://downloads.sourceforge.net/project/lame/lame/$LAME/lame-$LAME.tar.gz && \
     tar xzvf lame-$LAME.tar.gz && \
     cd lame-$LAME && \
-    ./configure --prefix="$HOME/ffmpeg_build" --enable-nasm --disable-shared && \
+    ./configure --enable-nasm --enable-shared && \
     make && \
     make install
 
@@ -79,7 +79,7 @@ RUN X264="20181001-2245-stable" && cd ~/ffmpeg_sources && \
     wget http://download.videolan.org/pub/x264/snapshots/x264-snapshot-$X264.tar.bz2 && \
     tar xjvf x264-snapshot-$X264.tar.bz2 && \
     cd x264-snapshot-$X264 && \
-    PATH="$HOME/bin:$PATH" ./configure --prefix="$HOME/ffmpeg_build" --bindir="$HOME/bin" --enable-static --disable-opencl --disable-asm && \
+    PATH="$HOME/bin:$PATH" ./configure --bindir="$HOME/bin" --enable-shared --disable-opencl --disable-asm && \
     PATH="$HOME/bin:$PATH" make && \
     make install && \
     make distclean
@@ -89,7 +89,7 @@ RUN FDK_AAC="0.1.4" && cd ~/ffmpeg_sources && \
     tar xzvf fdk-aac.tar.gz && \
     cd fdk-aac-$FDK_AAC && \
     autoreconf -fiv && \
-    ./configure --prefix="$HOME/ffmpeg_build" --disable-shared && \
+    ./configure --enable-shared && \
     make && \
     make install && \
     make distclean
@@ -101,10 +101,9 @@ RUN FFMPEG_VER="n4.0.2" && cd ~/ffmpeg_sources && \
 RUN FFMPEG_VER="n4.0.2" && cd ~/ffmpeg_sources && \
     cd FFmpeg-$FFMPEG_VER && \
     PATH="$HOME/bin:$PATH" PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" ./configure \
-    --prefix="$HOME/ffmpeg_build" \
-    --pkg-config-flags="--static" \
-    --extra-cflags="-I$HOME/ffmpeg_build/include" \
-    --extra-ldflags="-L$HOME/ffmpeg_build/lib" \
+    --enable-shared --disable-static \
+    --enable-pic \
+    --extra-cflags="-g" \
     --bindir="$HOME/bin" \
     --enable-gpl \
     --enable-libass \
@@ -120,13 +119,9 @@ RUN FFMPEG_VER="n4.0.2" && cd ~/ffmpeg_sources && \
     --enable-libxcb \
     --enable-libpulse \
     --enable-alsa && \
-    PATH="$HOME/bin:$PATH" make && \
+    make && \
     make install && \
-    make distclean && \
-    hash -r && \
-    mv ~/bin/ffmpeg /usr/local/bin/
-
-
+    make distclean
 
 
 # nginx-rtmp with openresty
@@ -268,7 +263,7 @@ RUN cd / && git clone https://github.com/sctplab/usrsctp.git && cd /usrsctp && \
 
 
 # tag willche
-RUN cd / && git clone https://github.com/lufthansa/janus-gateway.git && cd /janus-gateway && \
+RUN cd / && git clone https://github.com/lufthansa/janus-gateway.git && cd /janus-gateway && git pull && \
     sh autogen.sh &&  \
     PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" ./configure \
     --enable-post-processing \
@@ -288,6 +283,10 @@ RUN cd / && git clone https://github.com/lufthansa/janus-gateway.git && cd /janu
     --enable-plugin-nosip \
     --enable-all-handlers && \
     make && make install && make configs && ldconfig
+
+# sdp file
+RUN echo "v=0\no=- 0 0 IN IP4 127.0.0.1\ns=RTP Video\nc=IN IP4 127.0.0.1\nt=0 0\na=tool:libavformat 56.15.102\nm=audio realaport RTP/AVP 111\na=rtpmap:111 OPUS/48000/2\nm=video realvport RTP/AVP 102\na=rtpmap:102 H264/90000\na=fmtp:102" > /usr/local/sdp.file
+RUN mkdir /usr/local/sdp
 
 COPY nginx.conf /usr/local/nginx/nginx.conf
 
