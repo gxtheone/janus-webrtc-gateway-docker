@@ -47798,8 +47798,9 @@ int srs_hijack_io_create_socket(srs_hijack_io_t ctx, srs_rtmp_t owner)
 {
     SrsBlockSyncSocket* skt = (SrsBlockSyncSocket*)ctx;
 
-    skt->family = AF_INET6;
-    skt->fd = ::socket(skt->family, SOCK_STREAM, 0);   // Try IPv6 first.
+    // ipv6会失败，暂时屏蔽
+    // skt->family = AF_INET6;
+    // skt->fd = ::socket(skt->family, SOCK_STREAM, 0);   // Try IPv6 first.
     if (!SOCKET_VALID(skt->fd)) {
         skt->family = AF_INET;
         skt->fd = ::socket(skt->family, SOCK_STREAM, 0);   // Try IPv4 instead, if IPv6 fails.
