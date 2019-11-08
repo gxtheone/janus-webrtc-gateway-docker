@@ -1380,17 +1380,26 @@ static void wbx_print_rooms();
 #include <libavformat/rtpdec.h>
 #include <srs_librtmp.h>
 
+typedef struct AVData {
+    uint8_t* vbuf;
+    int vlen;
+    uint32_t vpts;
+    uint8_t* abuf;
+    int alen;
+} AVData;
+
 // TODO: 根据roomid扩展
-AVFormatContext* ofmt_ctx = NULL;
-AVStream* pStream = NULL;
-RTPDemuxContext* rtp_demux_ctx = NULL;
-gboolean codec_prepared_flag = FALSE;
-gboolean rtp_prepared_flag = FALSE;
+static AVFormatContext* ofmt_ctx = NULL;
+static AVStream* pStream = NULL;
+static RTPDemuxContext* rtp_demux_ctx = NULL;
+static gboolean codec_prepared_flag = FALSE;
+static gboolean rtp_prepared_flag = FALSE;
 static janus_mutex ff_mutex = JANUS_MUTEX_INITIALIZER;
-srs_rtmp_t rtmp = NULL;
+static srs_rtmp_t rtmp = NULL;
+static AVData avdata;
 
 void ffmpeg_prepare(gchar* room_id, int width, int height, int bitrate);
-int ffmpeg_push_stream(char *buf, int len);
+int push_stream(char *buf, int len);
 void ffmpeg_end(void);
 // end ffmpeg
 
@@ -4816,7 +4825,7 @@ void janus_videoroom_incoming_rtp(janus_plugin_session *handle, int video, char 
 		}
 
         if (video && participant->video_active) {
-            ffmpeg_push_stream(buf, len);
+            push_stream(buf, len);
         }
 	}
 
@@ -7369,8 +7378,8 @@ void ffmpeg_prepare(gchar* room_id, int width, int height, int bitrate) {
 
     // 3. 初始化输出码流的AVFormatContext
     gchar output_path[512] = {0};
-    // g_snprintf(output_path, sizeof(output_path)-1, "rtmp://wxs.cisco.com:1935/hls/%s", room_id);
-    g_snprintf(output_path, sizeof(output_path)-1, "rtmp://10.140.212.114:1935/home/%s", room_id);
+    g_snprintf(output_path, sizeof(output_path)-1, "rtmp://wxs.cisco.com:1935/hls/%s", room_id);
+    // g_snprintf(output_path, sizeof(output_path)-1, "rtmp://10.140.212.114:1935/home/%s", room_id);
     avformat_alloc_output_context2(&ofmt_ctx, NULL, "flv", output_path);
     // JANUS_LOG(LOG_INFO, "alloc output context, output_path:%s\n", output_path);
 
@@ -7464,7 +7473,7 @@ void ffmpeg_prepare(gchar* room_id, int width, int height, int bitrate) {
     JANUS_LOG(LOG_INFO, "ffmepg prepared\n");
 }
 
-int ffmpeg_push_stream(char *buf, int len) {
+int push_stream(char *buf, int len) {
     if (ofmt_ctx == NULL) {
         JANUS_LOG(LOG_ERR, "ofmt_ctx == NULL\n");
         return -1;
@@ -7494,95 +7503,46 @@ int ffmpeg_push_stream(char *buf, int len) {
 
     // rtp解包
     int rv = 0;
-    static AVPacket* fullPkt = NULL;
+    // static AVPacket* fullPkt = NULL;
     janus_mutex_lock(&ff_mutex);
     do {
+        // 解rtp包
         AVPacket pkt;
         av_init_packet(&pkt);
         rv = ff_rtp_parse_packet(rtp_demux_ctx, &pkt, rv==1 ? NULL : &buf, len);
-        if (rv == -1) {
+        if (rv == -1 || pkt.size == 0) {
             JANUS_LOG(LOG_ERR, "rtp parse fail\n");
             av_packet_unref(&pkt);
             break;
         }
-
-        // static gboolean save_flag = FALSE;
-        // if (pkt.data[0]==0 && pkt.data[1]==0 && pkt.data[2]==0 && pkt.data[3]==1) {
-        //     save_flag = TRUE;
-        // }
-        // if (save_flag) {
-        //     // 保存文件
-        //     static FILE* fp1 = NULL;
-        //     static int ct1 = 0;
-        //     if (fp1 == NULL) {
-        //         fp1 = fopen("/home/record_bare1.h264", "a+");
-        //     }
-        //     fwrite(pkt.data, pkt.size, 1, fp1);
-        //     if (ct1++ > 5000) {
-        //         JANUS_LOG(LOG_WARN, "FILE  write over\n");
-        //         fclose(fp1);
-        //     }
-        // }
-    
-        // static int64_t index = 0;
-        // pkt.data = buf;
-        // pkt.size = len;
-        // pkt.stream_index = 0;
-        // AVRational time_base = ofmt_ctx->streams[0]->time_base;
-        // pkt.pts = (index++) * (pStream->time_base.den) / ((pStream->time_base.num) * 1000);
-        // pkt.dts = pkt.pts;
-        // pkt.duration = (pStream->time_base.den) / ((pStream->time_base.num) * 1000);
-        // pkt.pos = -1;
-
-        // JANUS_LOG(LOG_INFO, "pkt=%d, rv=%d buf:[%02x %02x %02x %02x]\n", pkt.size, rv, pkt.data[0], pkt.data[1], pkt.data[2], pkt.data[3]);
-
-        if (pkt.data[0] == 0x00 && pkt.data[1] == 0x00 & pkt.data[2] == 0x00 && pkt.data[3] == 0x01) {
-            if (fullPkt != NULL) {
-                // static FILE* fp = NULL;
-                // static int ct = 0;
-                // if (fp == NULL) {
-                //     fp = fopen("/home/record_bare2.h264", "a+");
-                // }
-                // fwrite(fullPkt->data, fullPkt->size, 1, fp);
-                // if (ct++ > 5000) {
-                //     JANUS_LOG(LOG_WARN, "FILE  write over\n");
-                //     fclose(fp);
-                // }
-
-                // static int64_t index = 0;
-                // AVRational time_base = ofmt_ctx->streams[0]->time_base;
-                // fullPkt->pts = (index++) * (pStream->time_base.den) / ((pStream->time_base.num) * 1000);
-                // fullPkt->dts = fullPkt->pts;
-                // fullPkt->duration = (pStream->time_base.den) / ((pStream->time_base.num) * 1000);
-                // fullPkt->pos = -1;
-
-                // JANUS_LOG(LOG_INFO, "fullPkt.size=%d, buf:[%02x %02x %02x %02x], pts=%lld, duration=%d\n", \
-                //     fullPkt->size, fullPkt->data[0], fullPkt->data[1], fullPkt->data[2], fullPkt->data[3], \
-                //     fullPkt->pts, fullPkt->duration);   
-                // av_write_frame(ofmt_ctx, fullPkt);
-
-                // srsrtmp.lib推流
-                int ret = srs_h264_write_raw_frames(rtmp, fullPkt->data, fullPkt->size, fullPkt->dts, fullPkt->pts);
-                printf("send raw frames, ret=%d, size=%d, pts=%lld, dts=%lld\n", ret, fullPkt->size, fullPkt->pts, fullPkt->dts);
-
-                free(fullPkt->data);
-                fullPkt->data = NULL;
-                fullPkt->size = 0;
-                av_packet_free(&fullPkt);
+        // TODO: audio需要区分处理
+        if (pkt.data[0] == 0x00 && pkt.data[1] == 0x00 && ((pkt.data[2] == 0x00 && pkt.data[3] == 0x01) || pkt.data[2] == 0x01)) {
+            if (avdata.vbuf != NULL) {
+                // 使用srslibrtmp推流，不考虑b帧情况
+                int ret = srs_h264_write_raw_frames(rtmp, avdata.vbuf, avdata.vlen, avdata.vpts, avdata.vpts);
+                if (ret != 0) {
+                    JANUS_LOG(LOG_ERR, "h264 frame push to rtmp server fail: %d\n", ret);
+                    JANUS_LOG(LOG_INFO, "raw frames, size=%d, pts=%lld, dts=%lld\n", avdata.vlen, avdata.vpts, avdata.vpts);
+                }
+                // 无论发送成功失败都要释放缓存
+                free(avdata.vbuf);
+                avdata.vbuf = NULL;
+                avdata.vlen = 0;
+                // pts必须放在此处计算
+                avdata.vpts = janus_get_monotonic_time() / 1000;
             }
-            fullPkt = av_packet_alloc();
-            fullPkt->data = malloc(pkt.size);
-            memcpy(fullPkt->data, pkt.data, pkt.size);
-            fullPkt->size += pkt.size;
-            fullPkt->dts = fullPkt->pts = pkt.pts;
+            avdata.vbuf = malloc(pkt.size);
+            memcpy(avdata.vbuf, pkt.data, pkt.size);
+            avdata.vlen += pkt.size;
         } else {
-            if (fullPkt == NULL) {
+            if (avdata.vbuf == NULL) {
                 av_packet_unref(&pkt);
                 break;
             }
-            fullPkt->data = realloc(fullPkt->data, fullPkt->size + pkt.size);
-            memcpy(fullPkt->data + fullPkt->size, pkt.data, pkt.size);
-            fullPkt->size += pkt.size;
+            // 组装完整的nal单元
+            avdata.vbuf = realloc(avdata.vbuf, avdata.vlen + pkt.size);
+            memcpy(avdata.vbuf + avdata.vlen, pkt.data, pkt.size);
+            avdata.vlen += pkt.size;
         }
         av_packet_unref(&pkt);
     } while(rv == 1);
