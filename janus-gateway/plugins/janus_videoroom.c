@@ -1378,6 +1378,7 @@ static void wbx_print_rooms();
 #include <libavcodec/avcodec.h>
 #include <libavutil/error.h>
 #include <libavformat/rtpdec.h>
+#include <srs_librtmp.h>
 
 // TODO: 根据roomid扩展
 AVFormatContext* ofmt_ctx = NULL;
@@ -1385,6 +1386,8 @@ AVStream* pStream = NULL;
 RTPDemuxContext* rtp_demux_ctx = NULL;
 gboolean codec_prepared_flag = FALSE;
 gboolean rtp_prepared_flag = FALSE;
+static janus_mutex ff_mutex = JANUS_MUTEX_INITIALIZER;
+srs_rtmp_t rtmp = NULL;
 
 void ffmpeg_prepare(gchar* room_id, int width, int height, int bitrate);
 int ffmpeg_push_stream(char *buf, int len);
@@ -2029,6 +2032,8 @@ int janus_videoroom_init(janus_callbacks *callback, const char *config_path) {
 	// willche init
 	ffmpegps = g_hash_table_new_full(g_int64_hash, g_int64_equal, (GDestroyNotify)g_free, (GDestroyNotify)wbx_ffmpeg_free_callback);
 	janus_mutex_init(&ffmpegps_mutex);
+    // ffmpeg
+    janus_mutex_init(&ff_mutex);
 	wbx_init();
 
 	/* Parse configuration to populate the rooms list */
@@ -4810,40 +4815,8 @@ void janus_videoroom_incoming_rtp(janus_plugin_session *handle, int video, char 
 			}
 		}
 
-        {
-            // test ffmpeg push stream to ngnix
-            // switch (participant->acodec) {
-            //     case JANUS_AUDIOCODEC_NONE:
-            //         JANUS_LOG(LOG_INFO, "acodec none\n");
-            //         break;
-            //     case JANUS_AUDIOCODEC_OPUS:
-            //         JANUS_LOG(LOG_INFO, "acodec opus\n");
-            //         break;
-            //     case JANUS_AUDIOCODEC_PCMU:
-            //         JANUS_LOG(LOG_INFO, "acodec pcmu\n");
-            //         break;
-            //     case JANUS_AUDIOCODEC_PCMA:
-            //         JANUS_LOG(LOG_INFO, "acodec opcma\n");
-            //         break;
-            //     case JANUS_AUDIOCODEC_G722:
-            //         JANUS_LOG(LOG_INFO, "acodec g722\n");
-            //         break;
-            //     case JANUS_AUDIOCODEC_ISAC_32K:
-            //         JANUS_LOG(LOG_INFO, "acodec isac_32k\n");
-            //         break;
-            //     case JANUS_AUDIOCODEC_ISAC_16K:
-            //         JANUS_LOG(LOG_INFO, "acodec isac_16k\n");
-            //         break;
-            //     default:
-            //         JANUS_LOG(LOG_INFO, "acodec unknown\n");
-            //         break;
-            // }
-            // janus_rtp_header *rtp = (janus_rtp_header *)buf;
-            // JANUS_LOG(LOG_INFO, "RTP_type=%d\n", rtp->type);
-
-            if (video && participant->video_active) {
-                ffmpeg_push_stream(buf, len);
-            }
+        if (video && participant->video_active) {
+            ffmpeg_push_stream(buf, len);
         }
 	}
 
@@ -7384,22 +7357,22 @@ static janus_videoroom * wbx_create_room(const gchar* room_id, const gchar* room
 void ffmpeg_prepare(gchar* room_id, int width, int height, int bitrate) {
     // AVOutputFormat *ofmt = NULL;
     AVCodec* pCodec = NULL;
-    AVCodecContext* pCodecCtx = NULL;
-    AVDictionary *opts = NULL;
+    // AVCodecContext* pStream->codec = NULL;
+    // AVDictionary *opts = NULL;
     int ret = 0;
 
     // 1. 注册所有组件
     avcodec_register_all();
 
     // 2. 初始化网络
-    avformat_network_init();
+    // avformat_network_init();
 
     // 3. 初始化输出码流的AVFormatContext
     gchar output_path[512] = {0};
     // g_snprintf(output_path, sizeof(output_path)-1, "rtmp://wxs.cisco.com:1935/hls/%s", room_id);
     g_snprintf(output_path, sizeof(output_path)-1, "rtmp://10.140.212.114:1935/home/%s", room_id);
     avformat_alloc_output_context2(&ofmt_ctx, NULL, "flv", output_path);
-    JANUS_LOG(LOG_INFO, "alloc output context, output_path:%s\n", output_path);
+    // JANUS_LOG(LOG_INFO, "alloc output context, output_path:%s\n", output_path);
 
     // 4. 查找H264编码器
     pCodec = avcodec_find_encoder(AV_CODEC_ID_H264);
@@ -7415,70 +7388,78 @@ void ffmpeg_prepare(gchar* room_id, int width, int height, int bitrate) {
         return;
     }
     pStream->time_base = (AVRational){1, 1000};
-    pStream->codecpar->codec_tag = 0;
-    pStream->avg_frame_rate = pStream->r_frame_rate = (AVRational){25, 0};
-    pStream->start_time = janus_get_monotonic_time();
+    pStream->codecpar->codec_tag = 7;
+    pStream->avg_frame_rate = pStream->r_frame_rate = (AVRational){0, 0};
     JANUS_LOG(LOG_ERR, "stream start time =%lld\n", pStream->start_time);
 
-    pCodecCtx = pStream->codec;
-    pCodecCtx->codec_id = pCodec->id;
-    pCodecCtx->codec_type = AVMEDIA_TYPE_VIDEO;
-    pCodecCtx->pix_fmt = AV_PIX_FMT_YUV420P;
-    pCodecCtx->width = width;
-    pCodecCtx->height = height;
-    pCodecCtx->framerate = (AVRational){25, 1};
-    pCodecCtx->time_base = (AVRational){1, 25};
-    pCodecCtx->gop_size = 50;
-    pCodecCtx->max_b_frames = 0;
-    pCodecCtx->qmin = 10;
-    pCodecCtx->qmax = 50;
-    pCodecCtx->bit_rate = bitrate;
-    pCodecCtx->level = 41;
-    pCodecCtx->refs = 1;
-    pCodecCtx->qcompress = 0.6;
+    pStream->codec->codec_id = pCodec->id;
+    pStream->codec->codec_type = AVMEDIA_TYPE_VIDEO;
+    pStream->codec->pix_fmt = AV_PIX_FMT_YUV420P;
+    pStream->codec->width = width;
+    pStream->codec->height = height;
+    pStream->codec->framerate = (AVRational){25, 1};
+    pStream->codec->time_base = (AVRational){1, 50};
+    pStream->codec->gop_size = 12;
+    pStream->codec->max_b_frames = 0;
+    pStream->codec->qmin = 2;
+    pStream->codec->qmax = 31;
+    pStream->codec->bit_rate = 0;
+    pStream->codec->level = 32;
+    pStream->codec->refs = 1;
+    pStream->codec->qcompress = 0.5;
 
     if (ofmt_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
-        pCodecCtx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+        pStream->codec->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     }
-    // if (pCodecCtx->codec_id == AV_CODEC_ID_H264) {
+    // if (pStream->codec->codec_id == AV_CODEC_ID_H264) {
     //     av_dict_set(&opts, "preset", "superfast", 0);
     //     av_dict_set(&opts, "tune", "zerolatency", 0);
     // }
 
     // 6. 打开编码器
-    av_dict_copy(&opts, NULL, 0);
-    ret = avcodec_open2(pCodecCtx, pCodec, &opts);
+    // av_dict_copy(&opts, NULL, 0);
+    ret = avcodec_open2(pStream->codec, pCodec, NULL);
     if (ret < 0) {
         JANUS_LOG(LOG_ERR, "avcodec open fail\n");
         return;
     }
-    av_dict_free(&opts);
+    // av_dict_free(&opts);
 
-    if (avcodec_parameters_from_context(pStream->codecpar, pCodecCtx) < 0) {
-        JANUS_LOG(LOG_ERR, "avcodec parameters from context fail\n");
-        return;
-    }
-    // avcodec_free_context(&pCodecCtx);
+    // if (avcodec_parameters_from_context(pStream->codecpar, pStream->codec) < 0) {
+    //     JANUS_LOG(LOG_ERR, "avcodec parameters from context fail\n");
+    //     return;
+    // }
+    // avcodec_free_context(&pStream->codec);
 
-    JANUS_LOG(LOG_WARN, ">>>>>>>>>> DUMP BEGIN >>>>>>>>>>\n\n");
-    av_dump_format(ofmt_ctx, 0, output_path, 1);
-    JANUS_LOG(LOG_WARN, "\n<<<<<<<<<< DUMP END <<<<<<<<<<\n\n");
+    // JANUS_LOG(LOG_WARN, ">>>>>>>>>> DUMP BEGIN >>>>>>>>>>\n\n");
+    // av_dump_format(ofmt_ctx, 0, output_path, 1);
+    // JANUS_LOG(LOG_WARN, "\n<<<<<<<<<< DUMP END <<<<<<<<<<\n\n");
 
     // 8. 打开网络输出流
     // 此处malloc pb
-    if (avio_open(&ofmt_ctx->pb, output_path, AVIO_FLAG_WRITE) < 0) {
-        JANUS_LOG(LOG_ERR, "avio open fail\n");
-        return;
-    }
+    // if (avio_open(&ofmt_ctx->pb, output_path, AVIO_FLAG_WRITE) < 0) {
+    //     JANUS_LOG(LOG_ERR, "avio open fail\n");
+    //     return;
+    // }
 
     // 9. 写头文件
-    ret = avformat_write_header(ofmt_ctx, &opts);
-    if (ret < 0) {
-        JANUS_LOG(LOG_ERR, "avformat write header fail\n");
-        return;
-    }
+    // ret = avformat_write_header(ofmt_ctx, &opts);
+    // if (ret < 0) {
+    //     JANUS_LOG(LOG_ERR, "avformat write header fail\n");
+    //     return;
+    // }
+
+    rtmp = srs_rtmp_create(output_path);
+    printf("### srs rtmp create: %p\n", rtmp);
+    ret = srs_rtmp_handshake(rtmp);
+    printf("### rtmp handshake ret=%d\n", ret);
+    ret = srs_rtmp_connect_app(rtmp);
+    printf("### connect app ret=%d\n", ret);
+    ret = srs_rtmp_publish_stream(rtmp);
+    printf("### publish stream ret=%d\n", ret);
 
     codec_prepared_flag = TRUE;
+    // JANUS_LOG(LOG_INFO, "####### ofmt=%p, ifmt=%p, pb=%p\n", ofmt_ctx->oformat, ofmt_ctx->iformat, ofmt_ctx->pb);
     
     JANUS_LOG(LOG_INFO, "ffmepg prepared\n");
 }
@@ -7513,24 +7494,34 @@ int ffmpeg_push_stream(char *buf, int len) {
 
     // rtp解包
     int rv = 0;
+    static AVPacket* fullPkt = NULL;
+    janus_mutex_lock(&ff_mutex);
     do {
         AVPacket pkt;
+        av_init_packet(&pkt);
         rv = ff_rtp_parse_packet(rtp_demux_ctx, &pkt, rv==1 ? NULL : &buf, len);
         if (rv == -1) {
             JANUS_LOG(LOG_ERR, "rtp parse fail\n");
+            av_packet_unref(&pkt);
             break;
         }
-        
-        // 保存文件
-        // static FILE* fp = NULL;
-        // static int ct = 0;
-        // if (fp == NULL) {
-        //     fp = fopen("/home/record_bare1.264", "a+");
+
+        // static gboolean save_flag = FALSE;
+        // if (pkt.data[0]==0 && pkt.data[1]==0 && pkt.data[2]==0 && pkt.data[3]==1) {
+        //     save_flag = TRUE;
         // }
-        // fwrite(pkt.data, pkt.size, 1, fp);
-        // if (ct++ > 5000) {
-        //     JANUS_LOG(LOG_WARN, "FILE  write over\n");
-        //     fclose(fp);
+        // if (save_flag) {
+        //     // 保存文件
+        //     static FILE* fp1 = NULL;
+        //     static int ct1 = 0;
+        //     if (fp1 == NULL) {
+        //         fp1 = fopen("/home/record_bare1.h264", "a+");
+        //     }
+        //     fwrite(pkt.data, pkt.size, 1, fp1);
+        //     if (ct1++ > 5000) {
+        //         JANUS_LOG(LOG_WARN, "FILE  write over\n");
+        //         fclose(fp1);
+        //     }
         // }
     
         // static int64_t index = 0;
@@ -7543,24 +7534,59 @@ int ffmpeg_push_stream(char *buf, int len) {
         // pkt.duration = (pStream->time_base.den) / ((pStream->time_base.num) * 1000);
         // pkt.pos = -1;
 
-        pkt.dts = pkt.pts;
-    
+        // JANUS_LOG(LOG_INFO, "pkt=%d, rv=%d buf:[%02x %02x %02x %02x]\n", pkt.size, rv, pkt.data[0], pkt.data[1], pkt.data[2], pkt.data[3]);
 
-        // AVRational oldTimeBase =  (AVRational){ 1, 1000 };
-        // av_packet_rescale_ts(&pkt, oldTimeBase, pStream->time_base);
-        
-        JANUS_LOG(LOG_INFO, "len=%d, pStream->time_base.num=%d, pStream->time_base.den=%d, pts=%lld, dts=%lld, duration=%lld\n", len, pStream->time_base.num, pStream->time_base.den, pkt.pts, pkt.dts, pkt.duration);
+        if (pkt.data[0] == 0x00 && pkt.data[1] == 0x00 & pkt.data[2] == 0x00 && pkt.data[3] == 0x01) {
+            if (fullPkt != NULL) {
+                // static FILE* fp = NULL;
+                // static int ct = 0;
+                // if (fp == NULL) {
+                //     fp = fopen("/home/record_bare2.h264", "a+");
+                // }
+                // fwrite(fullPkt->data, fullPkt->size, 1, fp);
+                // if (ct++ > 5000) {
+                //     JANUS_LOG(LOG_WARN, "FILE  write over\n");
+                //     fclose(fp);
+                // }
 
+                // static int64_t index = 0;
+                // AVRational time_base = ofmt_ctx->streams[0]->time_base;
+                // fullPkt->pts = (index++) * (pStream->time_base.den) / ((pStream->time_base.num) * 1000);
+                // fullPkt->dts = fullPkt->pts;
+                // fullPkt->duration = (pStream->time_base.den) / ((pStream->time_base.num) * 1000);
+                // fullPkt->pos = -1;
 
-        // int ret = av_interleaved_write_frame(ofmt_ctx, &pkt);
-        int ret = av_write_frame(ofmt_ctx, &pkt);
-        if(ret < 0) {
-            JANUS_LOG(LOG_ERR, "stream push fail:0x%x, err:[%s], stream_index=%d\n", ret, av_err2str(ret), pkt.stream_index);
+                // JANUS_LOG(LOG_INFO, "fullPkt.size=%d, buf:[%02x %02x %02x %02x], pts=%lld, duration=%d\n", \
+                //     fullPkt->size, fullPkt->data[0], fullPkt->data[1], fullPkt->data[2], fullPkt->data[3], \
+                //     fullPkt->pts, fullPkt->duration);   
+                // av_write_frame(ofmt_ctx, fullPkt);
+
+                // srsrtmp.lib推流
+                int ret = srs_h264_write_raw_frames(rtmp, fullPkt->data, fullPkt->size, fullPkt->dts, fullPkt->pts);
+                printf("send raw frames, ret=%d, size=%d, pts=%lld, dts=%lld\n", ret, fullPkt->size, fullPkt->pts, fullPkt->dts);
+
+                free(fullPkt->data);
+                fullPkt->data = NULL;
+                fullPkt->size = 0;
+                av_packet_free(&fullPkt);
+            }
+            fullPkt = av_packet_alloc();
+            fullPkt->data = malloc(pkt.size);
+            memcpy(fullPkt->data, pkt.data, pkt.size);
+            fullPkt->size += pkt.size;
+            fullPkt->dts = fullPkt->pts = pkt.pts;
         } else {
-            JANUS_LOG(LOG_INFO, "write frame ret=%d\n", ret);
+            if (fullPkt == NULL) {
+                av_packet_unref(&pkt);
+                break;
+            }
+            fullPkt->data = realloc(fullPkt->data, fullPkt->size + pkt.size);
+            memcpy(fullPkt->data + fullPkt->size, pkt.data, pkt.size);
+            fullPkt->size += pkt.size;
         }
         av_packet_unref(&pkt);
     } while(rv == 1);
+    janus_mutex_unlock(&ff_mutex);
 
     return rv;
 }

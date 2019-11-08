@@ -156,6 +156,7 @@ janus_LDADD = \
 	$(JANUS_LIBS) \
 	$(JANUS_MANUAL_LIBS) \
 	$(FFMPEG_LIBS) \
+    /usr/local/lib/libsrsrtmp.so \
 	$(NULL)
 
 dist_man1_MANS = janus.1
