@@ -1048,6 +1048,8 @@ room-<unique room ID>: {
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#include "rtmp.h"
+
 
 /* Plugin information */
 #define JANUS_VIDEOROOM_VERSION			9
@@ -1372,36 +1374,6 @@ static janus_videoroom * wbx_create_room(const char* room_id, const char* roomde
 static void wbx_print_rooms_callback(gpointer key, gpointer value, gpointer data);
 static void wbx_print_rooms();
 // end wxs
-
-// ffmpeg
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
-#include <libavutil/error.h>
-#include <libavformat/rtpdec.h>
-#include <srs_librtmp.h>
-
-// 用于组装音视频完整帧
-typedef struct AVData {
-    uint8_t* vbuf;
-    int vlen;
-    uint32_t vpts;
-    uint8_t* abuf;
-    int alen;
-} AVData;
-
-// TODO: 根据roomid扩展
-static AVFormatContext* ofmt_ctx = NULL;
-static AVStream* pStream = NULL;
-static RTPDemuxContext* rtp_demux_ctx = NULL;
-static gboolean codec_prepared_flag = FALSE;
-static janus_mutex ff_mutex = JANUS_MUTEX_INITIALIZER;
-static srs_rtmp_t rtmp = NULL;
-static AVData avdata;
-
-void ffmpeg_prepare(gchar* room_id, int width, int height, int bitrate);
-int push_stream(char *buf, int len);
-void ffmpeg_end(void);
-// end ffmpeg
 
 typedef struct janus_videoroom_session {
 	janus_plugin_session *handle;
@@ -2042,7 +2014,7 @@ int janus_videoroom_init(janus_callbacks *callback, const char *config_path) {
 	ffmpegps = g_hash_table_new_full(g_int64_hash, g_int64_equal, (GDestroyNotify)g_free, (GDestroyNotify)wbx_ffmpeg_free_callback);
 	janus_mutex_init(&ffmpegps_mutex);
     // ffmpeg
-    janus_mutex_init(&ff_mutex);
+    // janus_mutex_init(&ff_mutex);
 	wbx_init();
 
 	/* Parse configuration to populate the rooms list */
@@ -3753,7 +3725,7 @@ static json_t *janus_videoroom_process_synchronous_request(janus_videoroom_sessi
 				wbx_start_ffmpeg(session->sdp_sessid, room_id, publisher_id, video_port[0], audio_port, view_iwidth, view_iheigth, NULL, port_index);
 			}
 
-            ffmpeg_prepare(room_id, view_iwidth, view_iheigth, publisher->bitrate);
+            rtmp_prepare(room_id, view_iwidth, view_iheigth);
 		}
 		else
 		{
@@ -4825,7 +4797,7 @@ void janus_videoroom_incoming_rtp(janus_plugin_session *handle, int video, char 
 		}
 
         if (video && participant->video_active) {
-            push_stream(buf, len);
+            rtmp_push_stream(buf, len);
         }
 	}
 
@@ -5962,8 +5934,6 @@ static void *janus_videoroom_handler(void *data) {
 				json_object_set_new(event, "room", json_string(participant->room_id));
 				json_object_set_new(event, "unpublished", json_string("ok"));
 				wbx_kill_ffmpeg(participant->session->sdp_sessid, participant->room_id, participant->user_id, TRUE);
-
-                ffmpeg_end();
 			} else if(!strcasecmp(request_text, "leave")) {
 				/* Prepare an event to confirm the request */
 				event = json_object();
@@ -5981,6 +5951,7 @@ static void *janus_videoroom_handler(void *data) {
 				// willche add
 				session->participant_type = janus_videoroom_p_type_none;
 				//~ session->destroy = TRUE;
+                rtmp_end();
 			} else {
 				janus_refcount_decrease(&participant->ref);
 				JANUS_LOG(LOG_ERR, "Unknown request '%s'\n", request_text);
@@ -7361,137 +7332,3 @@ static janus_videoroom * wbx_create_room(const gchar* room_id, const gchar* room
 	return videoroom;
 }
 // end wbx 
-
-// TODO: fail free
-void ffmpeg_prepare(gchar* room_id, int width, int height, int bitrate) {
-    avcodec_register_all();
-    avformat_network_init();
-
-    gchar output_path[512] = {0};
-    g_snprintf(output_path, sizeof(output_path)-1, "rtmp://wxs.cisco.com:1935/hls/%s", room_id);
-    // g_snprintf(output_path, sizeof(output_path)-1, "rtmp://10.140.212.114:1935/home/%s", room_id);
-    avformat_alloc_output_context2(&ofmt_ctx, NULL, "flv", output_path);
-
-    AVCodec* pCodec = avcodec_find_encoder(AV_CODEC_ID_H264);
-    if (!pCodec) {
-        JANUS_LOG(LOG_ERR, "avcodec h264 not found\n");
-        return;
-    }
-    pStream = avformat_new_stream(ofmt_ctx, pCodec);
-    if (!pStream) {
-        JANUS_LOG(LOG_ERR, "avformat new stream fail\n");
-        return;
-    }
-    pStream->time_base = (AVRational){1, 1000};
-    pStream->codec->codec_id = pCodec->id;
-    pStream->codec->codec_type = AVMEDIA_TYPE_VIDEO;
-    pStream->codec->pix_fmt = AV_PIX_FMT_YUV420P;
-    pStream->codec->width = width;
-    pStream->codec->height = height;
-    pStream->codec->time_base = (AVRational){1, 1000};
-    if (ofmt_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
-        pStream->codec->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-    }
-
-    int ret = avcodec_open2(pStream->codec, pCodec, NULL);
-    if (ret < 0) {
-        JANUS_LOG(LOG_ERR, "avcodec open fail\n");
-        return;
-    }
-
-    rtmp = srs_rtmp_create(output_path);
-    printf("### srs rtmp create: %p\n", rtmp);
-    ret = srs_rtmp_handshake(rtmp);
-    printf("### rtmp handshake ret=%d\n", ret);
-    ret = srs_rtmp_connect_app(rtmp);
-    printf("### connect app ret=%d\n", ret);
-    ret = srs_rtmp_publish_stream(rtmp);
-    printf("### publish stream ret=%d\n", ret);
-
-    codec_prepared_flag = TRUE;
-    
-    JANUS_LOG(LOG_INFO, "ffmepg prepared\n");
-}
-
-int push_stream(char *buf, int len) {
-    if (ofmt_ctx == NULL) {
-        JANUS_LOG(LOG_ERR, "ofmt_ctx == NULL\n");
-        return -1;
-    }
-    if (!codec_prepared_flag) {
-        JANUS_LOG(LOG_WARN, "wait for ffmpeg prepared\n");
-        return -1;
-    }
-
-    // 准备rtp解析工作
-    janus_rtp_header *rtp_header = (janus_rtp_header *)buf;
-    if (rtp_demux_ctx == NULL) {
-        rtp_demux_ctx = ff_rtp_parse_open(ofmt_ctx, pStream, rtp_header->type, 5*1024*1024);
-        if (!rtp_demux_ctx) {
-            JANUS_LOG(LOG_ERR, "ff_rtp_parse_open fail\n");
-            return -1;
-        }
-        RTPDynamicProtocolHandler* dpHandler = ff_rtp_handler_find_by_name("H264", AVMEDIA_TYPE_VIDEO);
-        if (!dpHandler) {
-            JANUS_LOG(LOG_ERR, "ff_rtp_handler_find_by_id fail\n");
-            return -1;
-        }
-        ff_rtp_parse_set_dynamic_protocol(rtp_demux_ctx, NULL, dpHandler);
-        JANUS_LOG(LOG_INFO, "rtp parse prepared\n");
-    }
-
-    // rtp解包
-    int rv = 0;
-    janus_mutex_lock(&ff_mutex);
-    do {
-        // 解rtp包
-        AVPacket pkt;
-        av_init_packet(&pkt);
-        rv = ff_rtp_parse_packet(rtp_demux_ctx, &pkt, rv==1 ? NULL : &buf, len);
-        if (rv == -1 || pkt.size == 0) {
-            JANUS_LOG(LOG_ERR, "rtp parse fail\n");
-            av_packet_unref(&pkt);
-            break;
-        }
-        // TODO: audio需要区分处理
-        if (pkt.data[0] == 0x00 && pkt.data[1] == 0x00 && ((pkt.data[2] == 0x00 && pkt.data[3] == 0x01) || pkt.data[2] == 0x01)) {
-            if (avdata.vbuf != NULL) {
-                // 使用srslibrtmp推流，不考虑b帧情况
-                int ret = srs_h264_write_raw_frames(rtmp, avdata.vbuf, avdata.vlen, avdata.vpts, avdata.vpts);
-                if (ret != 0) {
-                    JANUS_LOG(LOG_ERR, "h264 frame push to rtmp server fail: %d\n", ret);
-                    JANUS_LOG(LOG_INFO, "raw frames, size=%d, pts=%lld, dts=%lld\n", avdata.vlen, avdata.vpts, avdata.vpts);
-                }
-                // 无论发送成功失败都要释放缓存
-                free(avdata.vbuf);
-                avdata.vbuf = NULL;
-                avdata.vlen = 0;
-                // pts必须放在此处计算
-                avdata.vpts = janus_get_monotonic_time() / 1000;
-            }
-            avdata.vbuf = malloc(pkt.size);
-            memcpy(avdata.vbuf, pkt.data, pkt.size);
-            avdata.vlen += pkt.size;
-        } else {
-            if (avdata.vbuf == NULL) {
-                av_packet_unref(&pkt);
-                break;
-            }
-            // 组装完整的nal单元
-            avdata.vbuf = realloc(avdata.vbuf, avdata.vlen + pkt.size);
-            memcpy(avdata.vbuf + avdata.vlen, pkt.data, pkt.size);
-            avdata.vlen += pkt.size;
-        }
-        av_packet_unref(&pkt);
-    } while(rv == 1);
-    janus_mutex_unlock(&ff_mutex);
-
-    return rv;
-}
-
-void ffmpeg_end() {
-    JANUS_LOG(LOG_INFO, "stream push over, write tail\n");
-    av_write_trailer(ofmt_ctx);
-    // TODO:释放资源
-}
-// end ffmpeg
