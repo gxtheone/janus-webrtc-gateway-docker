@@ -8,6 +8,12 @@
 #include <libavformat/rtpdec.h>
 #include <srs_librtmp.h>
 #include "../mutex.h"
+#include <opus/opus.h>
+
+typedef enum {
+    Media_Audio = 0,
+    Media_Video
+} MediaType;
 
 // 用于组装音视频完整帧
 typedef struct AVData {
@@ -27,9 +33,12 @@ gboolean codec_prepared_flag;
 srs_rtmp_t rtmp;
 AVData avdata;
 
+// opus解码
+OpusDecoder* opus_dec;
+
 // 函数声明
 void rtmp_prepare(char* room_id, int width, int height);
-int rtmp_push_stream(char *buf, int len);
+int rtmp_push_stream(char *buf, int len, MediaType av);
 void rtmp_end(void);
 // end ffmpeg
 

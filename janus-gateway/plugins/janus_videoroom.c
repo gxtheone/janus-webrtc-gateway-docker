@@ -2666,7 +2666,10 @@ static int janus_videoroom_access_room(json_t *root, gboolean check_modify, gboo
 	*videoroom = g_hash_table_lookup(rooms, room_id);
 
 	JANUS_LOG(LOG_INFO, "willche in janus_videoroom_access_room id = %s room = %d\n", room_id, videoroom);
-	
+    printf(">>>>>>>>>>>>>>>>>>>>\n");
+    printf("root:%s\n", json_dumps(root, JSON_ENCODE_ANY));
+    printf("<<<<<<<<<<<<<<<<<<<<\n");
+
 	if(*videoroom == NULL) {
 		JANUS_LOG(LOG_ERR, "No such room (%s)\n", room_id);
 		error_code = JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM;
@@ -4797,7 +4800,10 @@ void janus_videoroom_incoming_rtp(janus_plugin_session *handle, int video, char 
 		}
 
         if (video && participant->video_active) {
-            rtmp_push_stream(buf, len);
+            rtmp_push_stream(buf, len, Media_Video);
+        }
+        if (!video && participant->audio_active) {
+            rtmp_push_stream(buf, len, Media_Audio);
         }
 	}
 
