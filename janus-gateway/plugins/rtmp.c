@@ -63,6 +63,7 @@ void rtmp_prepare(char* room_id, int width, int height) {
     JANUS_LOG(LOG_INFO, "ffmpeg video avcodec open2 success\n");
 
     // audio
+    // opus_dec
     int err = 0;
     opus_dec = opus_decoder_create(48000, 1, &err);
     if (err != OPUS_OK) {
@@ -71,7 +72,38 @@ void rtmp_prepare(char* room_id, int width, int height) {
     }
     JANUS_LOG(LOG_INFO, "opus decoder create success\n");
 
+    // faac
+    aac_enc = faacEncOpen(48000, 1, &inputSamples, &maxOutputBytes);
+    if (aac_enc == NULL) {
+        JANUS_LOG(LOG_ERR, "faac enc open fail\n");
+        return;
+    }
+    // 获取当前编码器信息
+	faacEncConfigurationPtr pConfiguration = NULL;
+	pConfiguration = faacEncGetCurrentConfiguration(aac_enc);
 
+	// 设置编码配置信息
+	pConfiguration->inputFormat = FAAC_INPUT_16BIT;
+	// 0 = Raw; 1 = ADTS
+	pConfiguration->outputFormat = 1;
+	pConfiguration->aacObjectType = LOW;
+	pConfiguration->allowMidside = 0;
+	pConfiguration->useLfe = 0;
+    pConfiguration->useTns = 1;
+    pConfiguration->shortctl = SHORTCTL_NORMAL;
+    pConfiguration->quantqual = 100;
+	pConfiguration->bitRate = 0; //48000 * 16 * 1;
+	pConfiguration->bandWidth = 0; //64000;
+
+	// 重置编码器的配置信息
+	faacEncSetConfiguration(aac_enc, pConfiguration);
+    printf("faac enc open success, inputSamples=%lu, maxOutputBytes=%lu\n", inputSamples, maxOutputBytes);
+    // 分配缓存
+    avdata.abuf = malloc(inputSamples * 2 * 2);
+    avdata.abegin = 0;
+    avdata.aend = 0;
+    avdata.apts = janus_get_monotonic_time() / 1000;
+    
     // srs-librtmp
     rtmp = srs_rtmp_create(output_path);
     if (rtmp == NULL) {
@@ -117,7 +149,6 @@ int rtmp_push_stream(char *buf, int len, MediaType av) {
     janus_rtp_header *rtp_header = (janus_rtp_header *)buf;
     // rtp解包
     int rv = 0;
-
     if (av == Media_Video) {
         if (rtp_demux_ctx == NULL) {
             rtp_demux_ctx = ff_rtp_parse_open(ofmt_ctx, pStream, rtp_header->type, 5*1024*1024);
@@ -182,25 +213,56 @@ int rtmp_push_stream(char *buf, int len, MediaType av) {
             return -1;
         // 解码
         int frame_size = 48000 / 50 * 1;  // (1 == channels)
-        opus_uint16 pcmbuf[1024*1024] = {0};
+        opus_uint16 pcmbuf[1024 * 1024] = {0};
         int pcmlen = frame_size * 1 * sizeof(opus_int16);
         int ret = opus_decode(opus_dec, payload, plen, pcmbuf, frame_size, 0);
         if (ret <= 0) {
             JANUS_LOG(LOG_ERR, "opus decode fail\n");
             return -1;
         }
-        // rtmp推送
-        
-
+        // printf("pcmlen=%d, decRet=%d\n", pcmlen, ret);
         // {
         //     static FILE* fp = NULL;
         //     if (fp == NULL) {
-        //         fp = fopen("/home/audio16.pcm", "a+");
+        //         fp = fopen("/home/audio9.pcm", "a+");
         //     } 
         //     if (fp != NULL) {
         //         fwrite(pcmbuf, pcmlen, 1, fp);
         //     }
         // }
+ 
+        // aac编码及推送
+        memcpy(avdata.abuf + avdata.abegin, pcmbuf, pcmlen);
+        avdata.aend += pcmlen;
+        if (avdata.aend - avdata.abegin >= inputSamples * 2) {
+            // 编码
+            uint8_t aacbuf[8192] = {0};
+            uint aaclen = faacEncEncode(aac_enc, (int32_t*)avdata.abuf, inputSamples, aacbuf, sizeof(aacbuf));
+            avdata.abegin += inputSamples * 2;
+            // 数据移位
+            memcpy(avdata.abuf, avdata.abuf + avdata.abegin, avdata.aend - avdata.abegin);
+            avdata.abegin -= inputSamples * 2;
+            avdata.aend -= inputSamples * 2;
+            // memset(avdata.abuf + avdata.aend, 0, inputSamples * 2 * 2 - avdata.aend);
+            // rtmp推送
+            avdata.apts = janus_get_monotonic_time() / 1000;
+            ret = srs_audio_write_raw_frame(rtmp, 10, 3, 1, 0, aacbuf, aaclen, avdata.apts);
+            if (ret != 0) {
+                JANUS_LOG(LOG_ERR, "rtmp send audio frame fail:%d\n", ret);
+                return -1;
+            }
+            
+            // 保存文件
+            // {
+            //     static FILE* fp = NULL;
+            //     if (fp == NULL) {
+            //         fp = fopen("/home/audio9.aac", "a+");
+            //     } 
+            //     if (fp != NULL) {
+            //         fwrite(aacbuf, aaclen, 1, fp);
+            //     }
+            // }
+        }
     }
 
     return rv;
@@ -220,5 +282,9 @@ void rtmp_end() {
     if (opus_dec) {
         opus_decoder_destroy(opus_dec);
         opus_dec = NULL;
+    }
+    if (aac_enc) {
+        aacEncClose(aac_enc);
+        aac_enc = NULL;
     }
 }
