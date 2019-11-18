@@ -5955,9 +5955,6 @@ static void *janus_videoroom_handler(void *data) {
 				// willche add
 				session->participant_type = janus_videoroom_p_type_none;
 				//~ session->destroy = TRUE;
-
-                // rtmp
-                rtmp_stream_close(participant->room_id);
 			} else {
 				janus_refcount_decrease(&participant->ref);
 				JANUS_LOG(LOG_ERR, "Unknown request '%s'\n", request_text);
@@ -7154,6 +7151,8 @@ static int wbx_check_ffmpeg(const char * room_id)
 // if client change width and heigth, don`t return port
 static int wbx_kill_ffmpeg(guint64 session_id, const char* room_id, guint64 user_id, gboolean return_port)
 {
+    rtmp_stream_close(room_id);
+
 	int port_index = -1;
 	JANUS_LOG(LOG_INFO, "willche in wbx_kill_ffmpeg  sid = %lu rid = %lu uid = %lu \n", session_id, room_id, user_id);
 	wbx_ffmpeg_progress * ffps = NULL;
