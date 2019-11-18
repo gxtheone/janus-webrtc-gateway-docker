@@ -2664,12 +2664,7 @@ static int janus_videoroom_access_room(json_t *root, gboolean check_modify, gboo
 	json_t *room = json_object_get(root, "room");
 	const char * room_id = json_string_value(room);
 	*videoroom = g_hash_table_lookup(rooms, room_id);
-
 	JANUS_LOG(LOG_INFO, "willche in janus_videoroom_access_room id = %s room = %d\n", room_id, videoroom);
-    printf(">>>>>>>>>>>>>>>>>>>>\n");
-    printf("root:%s\n", json_dumps(root, JSON_ENCODE_ANY));
-    printf("<<<<<<<<<<<<<<<<<<<<\n");
-
 	if(*videoroom == NULL) {
 		JANUS_LOG(LOG_ERR, "No such room (%s)\n", room_id);
 		error_code = JANUS_VIDEOROOM_ERROR_NO_SUCH_ROOM;
@@ -3728,7 +3723,10 @@ static json_t *janus_videoroom_process_synchronous_request(janus_videoroom_sessi
 				wbx_start_ffmpeg(session->sdp_sessid, room_id, publisher_id, video_port[0], audio_port, view_iwidth, view_iheigth, NULL, port_index);
 			}
 
-            rtmp_prepare(room_id, view_iwidth, view_iheigth);
+            // rtmp
+            Video_Param vp = {.width = view_iwidth, .height = view_iheigth};
+            Audio_Param ap = {.channels = 1, .sample_rate = 48000, .input_format = Format_16Bit};
+            rtmp_stream_open(room_id, &vp, &ap);
 		}
 		else
 		{
@@ -4800,10 +4798,10 @@ void janus_videoroom_incoming_rtp(janus_plugin_session *handle, int video, char 
 		}
 
         if (video && participant->video_active) {
-            rtmp_push_stream(buf, len, Media_Video);
+            rtmp_stream_push(videoroom->room_id, buf, len, Media_Video);
         }
         if (!video && participant->audio_active) {
-            rtmp_push_stream(buf, len, Media_Audio);
+            rtmp_stream_push(videoroom->room_id, buf, len, Media_Audio);
         }
 	}
 
@@ -5957,7 +5955,9 @@ static void *janus_videoroom_handler(void *data) {
 				// willche add
 				session->participant_type = janus_videoroom_p_type_none;
 				//~ session->destroy = TRUE;
-                rtmp_end();
+
+                // rtmp
+                rtmp_stream_close(participant->room_id);
 			} else {
 				janus_refcount_decrease(&participant->ref);
 				JANUS_LOG(LOG_ERR, "Unknown request '%s'\n", request_text);
@@ -7030,6 +7030,8 @@ static void wbx_init()
 	}
 
 	wbx_display_int_queue(wbx_free_port, "wbx_free_port");
+
+    rtmp_module_init();
 }
 
 static int wbx_get_port()
