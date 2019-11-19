@@ -49,7 +49,9 @@ void rtmp_stream_close(char* room_id) {
 
 int rtmp_stream_push(char* room_id, char* buf, int len, Media_Type av) {
     // 找到对应的ctx
+    janus_mutex_lock(&context_mutex);
     Stream_Context* ctx = g_hash_table_lookup(context_table, room_id);
+    janus_mutex_unlock(&context_mutex);
     if (!ctx) {
         JANUS_LOG(LOG_WARN, "room_id[%s] not exist, stream push error, tablesize=%d\n", room_id, g_hash_table_size(context_table));
         return -1;
