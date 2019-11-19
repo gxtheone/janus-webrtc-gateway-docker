@@ -73,7 +73,7 @@ static janus_mutex context_mutex = JANUS_MUTEX_INITIALIZER;
 // 模块初始化
 void rtmp_module_init(void);
 // 准备推流
-int rtmp_stream_open(char* room_id, Video_Param* vp, Audio_Param* ap);
+int rtmp_stream_open(char* room_id, char* url, Video_Param* vp, Audio_Param* ap);
 // 结束推流
 void rtmp_stream_close(char* room_id);
 // 推流

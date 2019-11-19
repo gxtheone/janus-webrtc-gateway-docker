@@ -17,9 +17,7 @@ void rtmp_module_init() {
     return;
 }
 
-int rtmp_stream_open(char* room_id, Video_Param* vp, Audio_Param* ap) {
-    char url[512] = {0};
-    snprintf(url, sizeof(url)-1, "rtmp://wxs.cisco.com:1935/hls/%s", room_id);
+int rtmp_stream_open(char* room_id, char* url, Video_Param* vp, Audio_Param* ap) {
     Stream_Context* ctx = context_create(vp, ap, url);
     if (!ctx) {
         JANUS_LOG(LOG_ERR, "stream_context create fail\n");
