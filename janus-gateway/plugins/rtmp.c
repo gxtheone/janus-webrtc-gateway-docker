@@ -181,25 +181,25 @@ Stream_Context* context_create(Video_Param* vp, Audio_Param* ap, char* url) {
         // ffmpeg
         ret = ffmpeg_decoder_create(ctx, vp);
         if (ret < 0) {
-            JANUS_LOG(LOG_ERR, "ffmpeg decoder init fail, err=%d\n", ret);
+            JANUS_LOG(LOG_ERR, "ffmpeg decoder create fail, err=%d\n", ret);
             break;
         }
         // opus
         ret = opus_decoder_create_(ctx, ap);
         if (ret < 0) {
-            JANUS_LOG(LOG_ERR, "opus decoder init fail, err=%d\n", ret);
+            JANUS_LOG(LOG_ERR, "opus decoder create fail, err=%d\n", ret);
             break;
         }
         // faac
         ret = faac_encoder_create_(ctx, ap);
         if (ret < 0) {
-            JANUS_LOG(LOG_ERR, "opus decoder init fail, err=%d\n", ret);
+            JANUS_LOG(LOG_ERR, "faac encoder create fail, err=%d\n", ret);
             break;
         }
         // srs-librtmp
         ret = srs_rtmp_create_(ctx, url);
         if (ret < 0) {
-            JANUS_LOG(LOG_ERR, "opus decoder init fail, err=%d\n", ret);
+            JANUS_LOG(LOG_ERR, "srs-librtmp create fail, err=%d\n", ret);
             break;
         }
         return ctx;

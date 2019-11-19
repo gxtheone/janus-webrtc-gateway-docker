@@ -84,16 +84,6 @@ RUN X264="20181001-2245-stable" && cd ~/ffmpeg_sources && \
     make install && \
     make distclean
 
-RUN FDK_AAC="0.1.4" && cd ~/ffmpeg_sources && \
-    wget -O fdk-aac.tar.gz https://github.com/mstorsjo/fdk-aac/archive/v$FDK_AAC.tar.gz && \
-    tar xzvf fdk-aac.tar.gz && \
-    cd fdk-aac-$FDK_AAC && \
-    autoreconf -fiv && \
-    ./configure --enable-shared && \
-    make && \
-    make install && \
-    make distclean
-
 RUN FFMPEG_VER="n4.0.2" && cd ~/ffmpeg_sources && \
     wget https://github.com/FFmpeg/FFmpeg/archive/$FFMPEG_VER.zip && \
     unzip $FFMPEG_VER.zip
@@ -103,11 +93,11 @@ RUN FFMPEG_VER="n4.0.2" && cd ~/ffmpeg_sources && \
     PATH="$HOME/bin:$PATH" PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" ./configure \
     --enable-shared --disable-static \
     --enable-pic \
+    --disable-stripping \
     --extra-cflags="-g" \
     --bindir="$HOME/bin" \
     --enable-gpl \
     --enable-libass \
-    --enable-libfdk-aac \
     --enable-libfreetype \
     --enable-libmp3lame \
     --enable-libopus \
@@ -119,10 +109,26 @@ RUN FFMPEG_VER="n4.0.2" && cd ~/ffmpeg_sources && \
     --enable-libxcb \
     --enable-libpulse \
     --enable-alsa && \
+    sed -i 's/av\*/av\*;ff_\*/' libavformat/libavformat.v && \
     make && \
     make install && \
     make distclean
 
+# faac
+RUN cd ~ && git clone https://github.com/knik0/faac.git && \
+    cd faac && \
+    ./bootstrap && \
+    ./configure --enable-static=no && \
+    make && \
+    make install && \
+    make clean
+
+# srs-librtmp
+RUN cd ~ && git clone https://github.com/gxtheone/srs-librtmp.git && \
+    cd srs-librtmp && \
+    make && \
+    make install && \
+    make clean
 
 # nginx-rtmp with openresty
 RUN ZLIB="zlib-1.2.11" && vNGRTMP="v1.1.11" && PCRE="8.41" && nginx_build=/root/nginx && mkdir $nginx_build && \
