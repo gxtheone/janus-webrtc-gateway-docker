@@ -130,6 +130,12 @@ RUN cd ~ && git clone https://github.com/gxtheone/srs-librtmp.git && \
     make install && \
     make clean
 
+# vip
+RUN VIPVER="0.3.0" && cd ~ && wget https://github.com/vipshop/hiredis-vip/archive/&VIPVER.zip && \
+    unzip &VIPVER.zip && \
+    cd &VIPVER && \
+    make && make install && make clean
+
 # nginx-rtmp with openresty
 RUN ZLIB="zlib-1.2.11" && vNGRTMP="v1.1.11" && PCRE="8.41" && nginx_build=/root/nginx && mkdir $nginx_build && \
     cd $nginx_build && \
