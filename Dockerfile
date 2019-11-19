@@ -133,7 +133,7 @@ RUN cd ~ && git clone https://github.com/gxtheone/srs-librtmp.git && \
 # vip
 RUN VIPVER="0.3.0" && cd ~ && wget https://github.com/vipshop/hiredis-vip/archive/&VIPVER.zip && \
     unzip &VIPVER.zip && \
-    cd &VIPVER && \
+    cd hiredis-vip-&VIPVER && \
     make && make install && make clean
 
 # nginx-rtmp with openresty
