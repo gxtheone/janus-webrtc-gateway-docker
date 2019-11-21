@@ -110,12 +110,15 @@ RUN FFMPEG_VER="n4.0.2" && cd ~/ffmpeg_sources && \
     --enable-libpulse \
     --enable-alsa && \
     sed -i 's/av\*/av\*;ff_\*/' libavformat/libavformat.v && \
-    cd /usr/local/include && \
-    sed -i "$(sed -n '/enum RTCPType/=' libavformat/rtp.h) i #if 0" libavformat/rtp.h && \
-    sed -i "`expr $(sed -n '/enum RTCPType/=' libavformat/rtp.h) + 17` i #endf" libavformat/rtp.h && \
     make && \
     make install && \
-    make distclean
+    cp libavformat/rtp.h /usr/local/include/libavformat/ && \
+    cp libavformat/url.h /usr/local/include/libavformat/ && \
+    cp libavformat/srtp.h /usr/local/include/libavformat/ && \
+    cp libavformat/rtpdec.h /usr/local/include/libavformat/ && \
+    cd /usr/local/include && \
+    sed -i "$(sed -n '/enum RTCPType/=' libavformat/rtp.h) i #if 0" libavformat/rtp.h && \
+    sed -i "`expr $(sed -n '/enum RTCPType/=' libavformat/rtp.h) + 17` i #endf" libavformat/rtp.h
 
 # faac
 RUN cd ~ && git clone https://github.com/knik0/faac.git && \
@@ -133,10 +136,10 @@ RUN cd ~ && git clone https://github.com/gxtheone/srs-librtmp.git && \
     make install && \
     make clean
 
-# vip
-RUN VIPVER="0.3.0" && cd ~ && wget https://github.com/vipshop/hiredis-vip/archive/&VIPVER.zip && \
-    unzip &VIPVER.zip && \
-    cd hiredis-vip-&VIPVER && \
+# redis
+RUN VIPVER="0.3.0" && cd ~ && wget https://github.com/vipshop/hiredis-vip/archive/$VIPVER.zip && \
+    unzip $VIPVER.zip && rm $VIPVER.zip && \
+    cd hiredis-vip-$VIPVER && \
     make && make install && make clean
 
 # nginx-rtmp with openresty
@@ -280,7 +283,7 @@ RUN cd / && git clone https://github.com/sctplab/usrsctp.git && cd /usrsctp && \
 # tag willche
 RUN cd / && git clone https://github.com/lufthansa/janus-gateway.git && cd /janus-gateway && git pull && \
     sh autogen.sh &&  \
-    PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" ./configure \
+    ./configure \
     --enable-post-processing \
     --enable-boringssl \
     --enable-data-channels \
