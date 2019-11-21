@@ -110,6 +110,9 @@ RUN FFMPEG_VER="n4.0.2" && cd ~/ffmpeg_sources && \
     --enable-libpulse \
     --enable-alsa && \
     sed -i 's/av\*/av\*;ff_\*/' libavformat/libavformat.v && \
+    cd /usr/local/include && \
+    sed -i "$(sed -n '/enum RTCPType/=' libavformat/rtp.h) i #if 0" libavformat/rtp.h && \
+    sed -i "`expr $(sed -n '/enum RTCPType/=' libavformat/rtp.h) + 17` i #endf" libavformat/rtp.h && \
     make && \
     make install && \
     make distclean
