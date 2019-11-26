@@ -120,6 +120,14 @@ RUN FFMPEG_VER="n4.0.2" && cd ~/ffmpeg_sources && \
     sed -i "$(sed -n '/enum RTCPType/=' libavformat/rtp.h) i #if 0" libavformat/rtp.h && \
     sed -i "`expr $(sed -n '/enum RTCPType/=' libavformat/rtp.h) + 17` i #endif" libavformat/rtp.h
 
+# libsamplerate
+RUN cd ~ && git clone https://github.com/erikd/libsamplerate.git && \
+    cd libsamplerate && \
+    ./configure --enable-static=no && \
+    make && \
+    make install && \
+    make clean
+
 # faac
 RUN cd ~ && git clone https://github.com/knik0/faac.git && \
     cd faac && \

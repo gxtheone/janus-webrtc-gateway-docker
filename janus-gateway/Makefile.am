@@ -153,7 +153,8 @@ EXT_LIBS = \
 	$(DEFAULT_LIBS_DIR)/libavutil.so \
 	$(DEFAULT_LIBS_DIR)/libsrsrtmp.so \
 	$(DEFAULT_LIBS_DIR)/libfaac.so \
-	$(DEFAULT_LIBS_DIR)/libopus.so
+	$(DEFAULT_LIBS_DIR)/libopus.so \
+	$(DEFAULT_LIBS_DIR)/libsamplerate.so
     
 janus_LDADD = \
 	$(BORINGSSL_LIBS) \
@@ -468,7 +469,7 @@ endif
 
 if ENABLE_PLUGIN_WXSVIDEOROOM
 plugin_LTLIBRARIES += plugins/libwxs_videoroom.la
-plugins_libwxs_videoroom_la_SOURCES = plugins/wxs_videoroom.c
+plugins_libwxs_videoroom_la_SOURCES = plugins/wxs_videoroom.c plugins/rtmp.c
 plugins_libwxs_videoroom_la_CFLAGS = $(plugins_cflags) -lhiredis_vip
 plugins_libwxs_videoroom_la_LDFLAGS = $(plugins_ldflags)
 plugins_libwxs_videoroom_la_LIBADD = $(plugins_libadd)
